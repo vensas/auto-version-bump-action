@@ -1,0 +1,138 @@
+name: Auto Version Bump
+description: >-
+  Automatically bumps versions in package.json or .csproj files based on
+  <!-- Version: TYPE --> comments in CHANGELOG.md [Unreleased] sections.
+  Discovers all changelogs in the repository automatically.
+
+outputs:
+  has_changes:
+    description: Whether any versions were bumped (true/false)
+    value: ${{ steps.version-bump.outputs.has_changes }}
+  updates:
+    description: Comma-separated list of version updates performed
+    value: ${{ steps.version-bump.outputs.updates }}
+
+runs:
+  using: composite
+  steps:
+    - name: Bump versions
+      id: version-bump
+      shell: bash
+      run: |
+        node << 'NODEEOF'
+        const fs = require('fs');
+        const path = require('path');
+
+        const root = process.env.GITHUB_WORKSPACE || process.cwd();
+
+        function findChangelogs(dir, results = []) {
+          let entries;
+          try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+          catch { return results; }
+          for (const entry of entries) {
+            if (entry.name === 'node_modules' || entry.name === '.git') continue;
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) findChangelogs(fullPath, results);
+            else if (entry.name === 'CHANGELOG.md') results.push(fullPath);
+          }
+          return results;
+        }
+
+        function detectBumpType(content) {
+          const match = content.match(/## \[Unreleased\]([\s\S]*?)(?=\n## |$)/);
+          if (!match) return null;
+          const versionMatch = match[1].match(/<!--\s*Version:\s*(major|minor|patch)\s*-->/i);
+          return versionMatch ? versionMatch[1].toLowerCase() : null;
+        }
+
+        function findVersionFile(dir) {
+          const packageJson = path.join(dir, 'package.json');
+          if (fs.existsSync(packageJson)) return { path: packageJson, type: 'npm' };
+          const csproj = fs.readdirSync(dir).find(f => f.endsWith('.csproj'));
+          if (csproj) return { path: path.join(dir, csproj), type: 'csproj' };
+          return null;
+        }
+
+        function getVersion(type, content) {
+          if (type === 'npm') {
+            try { return JSON.parse(content).version; } catch { return null; }
+          }
+          for (const tag of ['Version', 'ApplicationDisplayVersion']) {
+            const m = content.match(new RegExp(`<${tag}>([^<]+)</${tag}>`));
+            if (m) return m[1];
+          }
+          return null;
+        }
+
+        function setVersion(type, content, version) {
+          if (type === 'npm') {
+            const pkg = JSON.parse(content);
+            pkg.version = version;
+            return JSON.stringify(pkg, null, 2) + '\n';
+          }
+          for (const tag of ['Version', 'ApplicationDisplayVersion']) {
+            const re = new RegExp(`<${tag}>[^<]+</${tag}>`);
+            if (re.test(content)) return content.replace(re, `<${tag}>${version}</${tag}>`);
+          }
+          return content;
+        }
+
+        function bumpVersion(version, type) {
+          const [major, minor, patch] = version.split('.').map(Number);
+          if ([major, minor, patch].some(isNaN)) throw new Error(`Invalid version: ${version}`);
+          switch (type) {
+            case 'major': return `${major + 1}.0.0`;
+            case 'minor': return `${major}.${minor + 1}.0`;
+            case 'patch': return `${major}.${minor}.${patch + 1}`;
+            default: throw new Error(`Invalid bump type: ${type}`);
+          }
+        }
+
+        function updateChangelog(changelogPath, newVersion) {
+          const today = new Date().toISOString().split('T')[0];
+          const updated = fs.readFileSync(changelogPath, 'utf-8').replace(
+            /## \[Unreleased\]\s*\n<!--\s*Version:\s*(?:major|minor|patch)\s*-->\s*\n/i,
+            `## [Unreleased]\n\n## [${newVersion}] - ${today}\n\n`
+          );
+          fs.writeFileSync(changelogPath, updated, 'utf-8');
+        }
+
+        const updates = [];
+
+        for (const changelogPath of findChangelogs(root)) {
+          const dir = path.dirname(changelogPath);
+          const bumpType = detectBumpType(fs.readFileSync(changelogPath, 'utf-8'));
+          if (!bumpType) continue;
+
+          const vf = findVersionFile(dir);
+          if (!vf) {
+            console.warn(`⚠️  No version file found near ${changelogPath}`);
+            continue;
+          }
+
+          const vfContent = fs.readFileSync(vf.path, 'utf-8');
+          const currentVersion = getVersion(vf.type, vfContent);
+          if (!currentVersion) {
+            console.error(`❌ Could not read version from ${vf.path}`);
+            continue;
+          }
+
+          let newVersion;
+          try { newVersion = bumpVersion(currentVersion, bumpType); }
+          catch (e) { console.error(`❌ ${e.message}`); continue; }
+
+          fs.writeFileSync(vf.path, setVersion(vf.type, vfContent, newVersion), 'utf-8');
+          updateChangelog(changelogPath, newVersion);
+
+          const rel = path.relative(root, dir) || '.';
+          updates.push(`${rel}: ${currentVersion} -> ${newVersion} (${bumpType})`);
+          console.log(`✅ ${rel}: ${currentVersion} -> ${newVersion}`);
+        }
+
+        const githubOutput = process.env.GITHUB_OUTPUT;
+        if (githubOutput) {
+          fs.appendFileSync(githubOutput, updates.length > 0
+            ? `has_changes=true\nupdates=${updates.join(', ')}\n`
+            : `has_changes=false\n`);
+        }
+        NODEEOF
