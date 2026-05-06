@@ -69,6 +69,8 @@ jobs:
 | `auto-commit` | No | `false` | Commit and push the version bump changes automatically. Requires `permissions: contents: write`. |
 | `commit-message` | No | `chore: bump versions [skip ci]\n\n{updates}` | Commit message when `auto-commit` is enabled. `{updates}` is replaced with the list of version changes. |
 | `post-bump-command` | No | _(none)_ | Shell command to run after bumping but before committing. Use this to regenerate lockfiles. Only runs when `auto-commit` is enabled and changes were made. |
+| `git-user-name` | No | `github-actions[bot]` | Git `user.name` for the auto-commit. |
+| `git-user-email` | No | `github-actions[bot]@users.noreply.github.com` | Git `user.email` for the auto-commit. |
 | `version-files` | No | `{}` | JSON map of changelog path to version file path (both repo-relative). Overrides auto-discovery for specific entries. |
 
 ## Outputs
