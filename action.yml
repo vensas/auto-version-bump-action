@@ -4,6 +4,35 @@ description: >-
   <!-- Version: TYPE --> comments in CHANGELOG.md [Unreleased] sections.
   Discovers all changelogs in the repository automatically.
 
+inputs:
+  version-files:
+    description: >
+      Optional JSON map of changelog path (repo-relative) to version file path (repo-relative).
+      Overrides auto-discovery for specific changelogs.
+      Example: '{"src/backend/Feps/CHANGELOG.md": "src/backend/Feps/Feps.Api/Feps.Api.csproj"}'
+    required: false
+    default: '{}'
+  auto-commit:
+    description: >-
+      Whether to automatically commit and push the version bump changes.
+      Requires the workflow to have 'contents: write' permission.
+    required: false
+    default: 'false'
+  commit-message:
+    description: >-
+      Commit message used when auto-commit is enabled.
+      The placeholder {updates} is replaced with the list of version updates.
+    required: false
+    default: 'chore: bump versions [skip ci]\n\n{updates}'
+  post-bump-command:
+    description: >-
+      Optional shell command to run after versions are bumped but before committing.
+      Use this to regenerate lockfiles or run other post-bump tasks.
+      Only runs when auto-commit is enabled and changes were made.
+      Example: 'cd src/frontend && pnpm install --lockfile-only'
+    required: false
+    default: ''
+
 outputs:
   has_changes:
     description: Whether any versions were bumped (true/false)
@@ -18,12 +47,22 @@ runs:
     - name: Bump versions
       id: version-bump
       shell: bash
+      env:
+        INPUT_VERSION_FILES: ${{ inputs.version-files }}
       run: |
         node << 'NODEEOF'
         const fs = require('fs');
         const path = require('path');
 
         const root = process.env.GITHUB_WORKSPACE || process.cwd();
+
+        const versionFilesInput = process.env.INPUT_VERSION_FILES || '{}';
+        let versionFileOverrides = {};
+        try {
+          versionFileOverrides = JSON.parse(versionFilesInput);
+        } catch {
+          console.warn('⚠️  Could not parse version-files input as JSON, ignoring overrides.');
+        }
 
         function findChangelogs(dir, results = []) {
           let entries;
@@ -104,9 +143,18 @@ runs:
           const bumpType = detectBumpType(fs.readFileSync(changelogPath, 'utf-8'));
           if (!bumpType) continue;
 
-          const vf = findVersionFile(dir);
+          const relChangelog = path.relative(root, changelogPath).replace(/\\/g, '/');
+          let vf;
+          if (versionFileOverrides[relChangelog]) {
+            const overridePath = path.join(root, versionFileOverrides[relChangelog]);
+            const ext = path.extname(overridePath);
+            vf = { path: overridePath, type: ext === '.csproj' ? 'csproj' : 'npm' };
+          } else {
+            vf = findVersionFile(dir);
+          }
           if (!vf) {
             console.warn(`⚠️  No version file found near ${changelogPath}`);
+            console.warn(`    Tip: use the 'version-files' input to specify the path explicitly.`);
             continue;
           }
 
@@ -136,3 +184,20 @@ runs:
             : `has_changes=false\n`);
         }
         NODEEOF
+
+    - name: Run post-bump command
+      if: inputs.auto-commit == 'true' && inputs.post-bump-command != '' && steps.version-bump.outputs.has_changes == 'true'
+      shell: bash
+      run: ${{ inputs.post-bump-command }}
+
+    - name: Commit and push changes
+      if: inputs.auto-commit == 'true' && steps.version-bump.outputs.has_changes == 'true'
+      shell: bash
+      env:
+        COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        UPDATES: ${{ steps.version-bump.outputs.updates }}
+      run: |
+        msg="${COMMIT_MESSAGE//\{updates\}/$UPDATES}"
+        git add -A
+        git commit -m "$msg"
+        git push

@@ -62,12 +62,57 @@ jobs:
           git push origin main
 ```
 
+## Inputs
+
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `auto-commit` | No | `false` | Commit and push the version bump changes automatically. Requires `permissions: contents: write`. |
+| `commit-message` | No | `chore: bump versions [skip ci]\n\n{updates}` | Commit message when `auto-commit` is enabled. `{updates}` is replaced with the list of version changes. |
+| `post-bump-command` | No | _(none)_ | Shell command to run after bumping but before committing. Use this to regenerate lockfiles. Only runs when `auto-commit` is enabled and changes were made. |
+| `version-files` | No | `{}` | JSON map of changelog path to version file path (both repo-relative). Overrides auto-discovery for specific entries. |
+
 ## Outputs
 
 | Output | Description |
 |---|---|
 | `has_changes` | `true` if at least one version was bumped, otherwise `false` |
 | `updates` | Comma-separated list of updates, e.g. `src/frontend: 1.2.0 -> 1.3.0 (minor)` |
+
+## Auto-commit
+
+To have the action commit and push changes itself, enable `auto-commit`. This removes the need for a separate commit step in your workflow:
+
+```yaml
+- name: Bump versions
+  uses: vensas/auto-version-bump-action@main
+  with:
+    auto-commit: 'true'
+```
+
+If your project uses a lockfile that needs to be regenerated after a version bump (e.g. `package-lock.json`, `pnpm-lock.yaml`), use `post-bump-command` to handle that before the commit:
+
+```yaml
+- name: Bump versions
+  uses: vensas/auto-version-bump-action@main
+  with:
+    auto-commit: 'true'
+    post-bump-command: 'cd src/frontend && pnpm install --lockfile-only'
+```
+
+> **Note:** The default commit message includes `[skip ci]` to prevent the workflow from triggering itself again when the updated `CHANGELOG.md` is pushed back to the branch.
+
+## Overriding version file discovery
+
+If a changelog is not in the same directory as its version file, use `version-files` to map them explicitly:
+
+```yaml
+- name: Bump versions
+  uses: vensas/auto-version-bump-action@main
+  with:
+    version-files: '{"src/backend/Feps/CHANGELOG.md": "src/backend/Feps/Feps.Api/Feps.Api.csproj"}'
+```
+
+Auto-discovery still runs for all other changelogs — only the mapped entries are overridden.
 
 ## Changelog format
 
