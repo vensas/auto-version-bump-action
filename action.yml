@@ -212,4 +212,4 @@ runs:
         msg="${COMMIT_MESSAGE//\{updates\}/$UPDATES}"
         git add -A
         git commit -m "$msg"
-        git push
+        git push origin HEAD:"$GITHUB_REF_NAME"
