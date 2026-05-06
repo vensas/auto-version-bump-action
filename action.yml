@@ -52,6 +52,14 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Switch to branch head
+      shell: bash
+      run: |
+        if [ -n "$GITHUB_HEAD_REF" ]; then
+          git fetch origin "$GITHUB_HEAD_REF"
+          git checkout "$GITHUB_HEAD_REF"
+        fi
+
     - name: Bump versions
       id: version-bump
       shell: bash
@@ -207,14 +215,14 @@ runs:
         GIT_USER_NAME: ${{ inputs.git-user-name }}
         GIT_USER_EMAIL: ${{ inputs.git-user-email }}
       run: |
+        if [ -n "$GITHUB_HEAD_REF" ]; then
+          target_branch="$GITHUB_HEAD_REF"
+        else
+          target_branch="${GITHUB_REF#refs/heads/}"
+        fi
         git config user.name "$GIT_USER_NAME"
         git config user.email "$GIT_USER_EMAIL"
         msg="${COMMIT_MESSAGE//\{updates\}/$UPDATES}"
         git add -A
         git commit -m "$msg"
-        if [ -n "$GITHUB_HEAD_REF" ]; then
-          target_ref="refs/heads/$GITHUB_HEAD_REF"
-        else
-          target_ref="$GITHUB_REF"
-        fi
-        git push origin HEAD:"$target_ref"
+        git push origin "$target_branch"
