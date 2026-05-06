@@ -212,4 +212,9 @@ runs:
         msg="${COMMIT_MESSAGE//\{updates\}/$UPDATES}"
         git add -A
         git commit -m "$msg"
-        git push origin HEAD:"$GITHUB_REF"
+        if [ -n "$GITHUB_BASE_REF" ]; then
+          target_ref="refs/heads/$GITHUB_BASE_REF"
+        else
+          target_ref="$GITHUB_REF"
+        fi
+        git push origin HEAD:"$target_ref"
