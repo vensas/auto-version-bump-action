@@ -136,3 +136,20 @@ After the action runs, this becomes:
 ### Added
 - Some new feature
 ```
+
+## Contributing
+
+Contributions are welcome! The most impactful way to contribute is adding support for additional languages and version file formats. Currently supported:
+
+| Language / Platform | Version file | Version tag |
+|---|---|---|
+| JavaScript / Node.js | `package.json` | `version` field |
+| C# (.NET) | `*.csproj` | `<Version>` or `<ApplicationDisplayVersion>` |
+
+To add support for a new format, the relevant functions are `findVersionFile`, `getVersion`, and `setVersion` inside the inline script in [action.yml](action.yml). Adding a new language typically means:
+
+1. Extending `findVersionFile` to recognise the new file (e.g. `pyproject.toml`, `Cargo.toml`, `build.gradle`)
+2. Adding a `getVersion` branch to extract the version string from that file's format
+3. Adding a `setVersion` branch to write the bumped version back
+
+Please open a pull request with a short description of the format you added and update the table above.
