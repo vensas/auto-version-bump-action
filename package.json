@@ -1,0 +1,12 @@
+{
+  "name": "auto-version-bump-action",
+  "version": "0.2.0",
+  "description": "Automatically bumps versions in package.json or .csproj files based on CHANGELOG.md markers",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vensas/auto-version-bump-action.git"
+  },
+  "author": "vensas GmbH",
+  "license": "MIT"
+}

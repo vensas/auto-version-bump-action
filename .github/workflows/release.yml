@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no commits, tags, or releases)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version before bump
+        id: before
+        run: echo "version=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
+
+      - name: Run auto-version-bump (self)
+        uses: ./
+        with:
+          auto-commit: ${{ inputs.dry_run != true }}
+
+      - name: Get version after bump
+        id: after
+        run: echo "version=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
+
+      - name: Check if version changed
+        id: check
+        run: |
+          if [ "${{ steps.before.outputs.version }}" != "${{ steps.after.outputs.version }}" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Version bumped: ${{ steps.before.outputs.version }} -> ${{ steps.after.outputs.version }}"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No version change detected"
+          fi
+
+      - name: Extract release notes
+        if: steps.check.outputs.changed == 'true' && inputs.dry_run != true
+        id: notes
+        run: |
+          VERSION="${{ steps.after.outputs.version }}"
+          # Extract the section for this version from CHANGELOG.md
+          NOTES=$(sed -n "/## \[${VERSION}\]/,/## \[/p" CHANGELOG.md | sed '1d;$d' | sed '/^$/N;/^\n$/d')
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create and push tags
+        if: steps.check.outputs.changed == 'true' && inputs.dry_run != true
+        run: |
+          VERSION="${{ steps.after.outputs.version }}"
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Pull latest changes (from auto-commit)
+          git pull origin main
+
+          # Create version tag
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push origin "v${VERSION}"
+
+          # Update major version tag
+          git tag -fa "v${MAJOR}" -m "Update v${MAJOR} to v${VERSION}"
+          git push origin "v${MAJOR}" --force
+
+          echo "Created tags: v${VERSION} and v${MAJOR}"
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.changed == 'true' && inputs.dry_run != true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.after.outputs.version }}
+          name: v${{ steps.after.outputs.version }}
+          body: ${{ steps.notes.outputs.notes }}
+          draft: false
+          prerelease: false
